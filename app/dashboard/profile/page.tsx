@@ -2,23 +2,31 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/components/auth-provider"
 import { useToast } from "@/hooks/use-toast"
-import { User, Mail, MapPin, Phone, Calendar, Edit } from "lucide-react"
+import { User, Mail, MapPin, Phone, Calendar, Edit, Camera } from "lucide-react"
 
 export default function ProfilePage() {
   const { user } = useAuth()
   const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [stats, setStats] = useState({
+    helpRequests: 0,
+    helpOffers: 0,
+    eventsCreated: 0,
+    eventsJoined: 0,
+  })
   const [profileData, setProfileData] = useState({
     firstName: "",
     lastName: "",
@@ -26,6 +34,7 @@ export default function ProfilePage() {
     bio: "",
     location: "",
     phone: "",
+    profileImage: "",
   })
 
   useEffect(() => {
@@ -37,8 +46,10 @@ export default function ProfilePage() {
         bio: "",
         location: "",
         phone: "",
+        profileImage: "",
       })
       fetchProfile()
+      fetchStats()
     }
   }, [user])
 
@@ -51,6 +62,79 @@ export default function ProfilePage() {
       }
     } catch (error) {
       console.error("Failed to fetch profile:", error)
+    }
+  }
+
+  const fetchStats = async () => {
+    try {
+      const response = await fetch("/api/profile/stats")
+      if (response.ok) {
+        const data = await response.json()
+        setStats(data)
+      }
+    } catch (error) {
+      console.error("Failed to fetch stats:", error)
+    }
+  }
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Error",
+        description: "Please select an image file",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Error",
+        description: "Image size should be less than 5MB",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setUploadingImage(true)
+
+    try {
+      const formData = new FormData()
+      formData.append("image", file)
+
+      const response = await fetch("/api/profile/upload-image", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setProfileData((prev) => ({ ...prev, profileImage: data.imageUrl }))
+        toast({
+          title: "Success",
+          description: "Profile picture updated successfully!",
+        })
+      } else {
+        const errorData = await response.json()
+        toast({
+          title: "Error",
+          description: errorData.message || "Failed to upload image",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to upload image. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setUploadingImage(false)
     }
   }
 
@@ -120,12 +204,38 @@ export default function ProfilePage() {
           {/* Profile Card */}
           <Card className="lg:col-span-1">
             <CardHeader className="text-center">
-              <Avatar className="w-24 h-24 mx-auto mb-4">
-                <AvatarFallback className="text-2xl">
-                  {user.firstName[0]}
-                  {user.lastName[0]}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative mx-auto mb-4">
+                <Avatar className="w-24 h-24">
+                  {profileData.profileImage ? (
+                    <AvatarImage src={profileData.profileImage || "/placeholder.svg"} alt="Profile" />
+                  ) : (
+                    <AvatarFallback className="text-2xl">
+                      {user.firstName[0]}
+                      {user.lastName[0]}
+                    </AvatarFallback>
+                  )}
+                </Avatar>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="absolute -bottom-2 -right-2 rounded-full w-8 h-8 p-0"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingImage}
+                >
+                  {uploadingImage ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  ) : (
+                    <Camera className="h-4 w-4" />
+                  )}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </div>
               <CardTitle>
                 {profileData.firstName} {profileData.lastName}
               </CardTitle>
@@ -302,19 +412,19 @@ export default function ProfilePage() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">0</div>
+                <div className="text-2xl font-bold text-blue-600">{stats.helpRequests}</div>
                 <div className="text-sm text-gray-600">Help Requests</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">0</div>
+                <div className="text-2xl font-bold text-green-600">{stats.helpOffers}</div>
                 <div className="text-sm text-gray-600">Help Offers</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">0</div>
+                <div className="text-2xl font-bold text-purple-600">{stats.eventsCreated}</div>
                 <div className="text-sm text-gray-600">Events Created</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">0</div>
+                <div className="text-2xl font-bold text-orange-600">{stats.eventsJoined}</div>
                 <div className="text-sm text-gray-600">Events Joined</div>
               </div>
             </div>

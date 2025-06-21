@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import { Message, Conversation } from "@/lib/models"
 import { getAuthUser } from "@/lib/auth"
+import { createNotification } from "@/lib/notifications"
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ conversationId: string }> }) {
   try {
@@ -48,8 +49,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await connectDB()
 
     // Verify user is part of the conversation
-    const conversation = await Conversation.findById(conversationId)
-    if (!conversation || !conversation.participants.includes(user._id)) {
+    const conversation = await Conversation.findById(conversationId).populate("participants", "firstName lastName")
+    if (!conversation || !conversation.participants.some((p: any) => p._id.toString() === user._id.toString())) {
       return NextResponse.json({ message: "Conversation not found" }, { status: 404 })
     }
 
@@ -64,6 +65,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     conversation.lastMessage = message._id
     conversation.updatedAt = new Date()
     await conversation.save()
+
+    // Create notification for other participants
+    const otherParticipants = conversation.participants.filter((p: any) => p._id.toString() !== user._id.toString())
+    for (const participant of otherParticipants) {
+      await createNotification(
+        participant._id.toString(),
+        "message",
+        "New Message",
+        `${user.firstName} ${user.lastName} sent you a message`,
+        conversationId,
+      )
+    }
 
     // Populate sender info for response
     await message.populate("sender", "firstName lastName")

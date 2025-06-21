@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import { Event } from "@/lib/models"
 import { getAuthUser } from "@/lib/auth"
+import { createNotification } from "@/lib/notifications"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     await connectDB()
 
-    const event = await Event.findById(id)
+    const event = await Event.findById(id).populate("organizer", "firstName lastName")
     if (!event) {
       return NextResponse.json({ message: "Event not found" }, { status: 404 })
     }
@@ -36,6 +37,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       // Add user to attendees
       event.attendees.push(user._id)
       await event.save()
+
+      // Create notification for event organizer
+      if (event.organizer._id.toString() !== user._id.toString()) {
+        await createNotification(
+          event.organizer._id.toString(),
+          "event",
+          "New Event Attendee",
+          `${user.firstName} ${user.lastName} joined your event "${event.title}"`,
+          id,
+        )
+      }
+
       return NextResponse.json({ message: "Joined event successfully", joined: true })
     }
   } catch (error) {
